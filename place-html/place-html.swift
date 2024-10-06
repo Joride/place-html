@@ -42,6 +42,133 @@ class PlaceHTML: ParsableCommand
             help: "The directory containing the js files.")
     var outputDirectory: String
     
+    /// recursive
+    private func recurseDirectoryTree(rootDirectory rootURL: URL, operation: (URL) -> Void)
+    {
+        if let enumerator = fileManager.enumerator(at: rootURL,
+                                                   includingPropertiesForKeys: [.isRegularFileKey],
+                                                   options: [.skipsHiddenFiles, .skipsPackageDescendants])
+        {
+            for case let fileURL as URL in enumerator
+            {
+                do
+                {
+                    let fileAttributes = try fileURL.resourceValues(forKeys:[.isRegularFileKey])
+                    if fileAttributes.isRegularFile ?? false
+                    {
+                        operation(fileURL)
+                    }
+                }
+                catch
+                {
+                    print(error, fileURL)
+                }
+            }
+        }
+    }
+    
+    /// non-recursive, skips directories
+    private func enumerateDirectoryTree(rootDirectory rootURL: URL, operation: (URL) -> Void)
+    {
+        do
+        {
+            for aFileOrDirectoryName in try fileManager.contentsOfDirectory(atPath: inputDirectory)
+            {
+                let fullPath = (inputDirectory as NSString).appendingPathComponent(aFileOrDirectoryName) as String
+                guard let url = URL(string: fullPath)
+                else 
+                {
+                    print("Programming error: could not get valid path for \(aFileOrDirectoryName)")
+                    continue
+                }
+                var isDirectory: ObjCBool = false
+                if fileManager.fileExists(atPath: fullPath, isDirectory: &isDirectory) &&
+                    !isDirectory.boolValue
+                {
+                    operation(url)
+                }
+            }
+        }
+        catch
+        {
+            print("Aborted: could not list contentsOfDirectory at path: \(inputDirectory)")
+            abort()
+        }
+    }
+    
+    func run() throws
+    {
+        guard let inputURL = URL(string: inputDirectory)
+        else { fatalError("Input path is an invalid file URL.") }
+        
+        guard let outputURL = URL(string: outputDirectory)
+        else { fatalError("Output path is an invalid file URL.") }
+        
+        var paths = [String]()
+        let operation: (URL)->() = {
+            
+            let aPath = $0.path
+            
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(atPath: aPath, isDirectory: &isDirectory) &&
+                isDirectory.boolValue
+            {
+                /// This is a directory
+                paths.append(aPath)
+            }
+            else
+            {
+                // this is a file, check if it is an HTML file
+                if (aPath as NSString).pathExtension != "html" { return }
+                
+                paths.append(aPath)
+                
+                // perform placement
+                let jsFileURL = self.jsFileURL(forInputURL: inputURL,
+                                               outputURL: outputURL,
+                                               htmlFileURL: $0)
+                if !fileManager.fileExists(atPath: jsFileURL.path)
+                {
+                    print("Skipping a file! Could not find .js file at `\(jsFileURL.path)` to place html into for \($0)")
+                }
+                else
+                {
+                    // perform the placement
+                    self.placeHTML(from: $0.path, to: jsFileURL.path)
+                }
+                
+            }
+        }
+        if recursive
+        {
+            recurseDirectoryTree(rootDirectory: inputURL,
+                                 operation: operation)
+        }
+        else
+        {
+            enumerateDirectoryTree(rootDirectory: inputURL,
+                                   operation: operation)
+        }
+        
+        if watch
+        {
+            place_html.fileChangesObserver.delegate = self
+            if place_html.fileChangesObserver.start(observingPaths: paths)
+            {
+                print("Watching '\(inputURL)' for changes.")
+                print("!Note: restart this tool when adding new files or folders, as these will not be watched.")
+                
+                // never exit, keep watching
+                RunLoop.main.run()
+            }
+            else
+            {
+                print("Unable to start watching. Aborting.")
+                abort()
+            }
+        }
+    }
+    
     
     private func walkDirectoryTree(rootDirectory rootURL: URL, operation: (URL) -> Void)
     {
@@ -67,49 +194,6 @@ class PlaceHTML: ParsableCommand
         }
     }
     
-    private func placeNonRecursively()
-    {
-        do
-        {
-            for anHTMLFileName in try fileManager.contentsOfDirectory(atPath: inputDirectory)
-            {
-                let htmlFilePath = (inputDirectory as NSString).appendingPathComponent(anHTMLFileName) as String
-                
-                var isDirectory: ObjCBool = false
-                if fileManager.fileExists(atPath: htmlFilePath, isDirectory: &isDirectory) &&
-                    isDirectory.boolValue
-                {
-                    continue
-                }
-                
-                // check to see if a js file with the same name (case sensitive!)
-                // exists in the outputDir
-                let jsFile = jsFilePath(for: anHTMLFileName)
-                if fileManager.fileExists(atPath: jsFile)
-                {
-                    placeHTML(from: htmlFilePath, to: jsFile)
-                }
-                else
-                {
-                    print("No corresponding .js file for \(anHTMLFileName). Searched for `\(jsFile)`")
-                }
-            }
-        }
-        catch
-        {
-            print("Aborted: could not list contentsOfDirectory at path: \(inputDirectory)")
-            abort()
-        }
-    }
-    
-    func jsFilePath(for HTMLFileName: String) -> String
-    {
-        let fileNameWithoutExtension = (HTMLFileName as NSString).deletingPathExtension as String
-        var jsFilePath = (outputDirectory as NSString).appendingPathComponent(fileNameWithoutExtension) as String
-        jsFilePath += ".js"
-        return jsFilePath
-    }
-    
     private func jsFileURL(forInputURL inputURL: URL, outputURL: URL, htmlFileURL: URL) -> URL
     {
         let inputPathComponents = inputURL.pathComponents
@@ -130,86 +214,6 @@ class PlaceHTML: ParsableCommand
         jsFileURL = jsFileURL.appendingPathExtension("js")
         
         return jsFileURL
-    }
-    
-    private func placeRecursively(inputURL: URL, outputURL: URL)
-    {
-        walkDirectoryTree(rootDirectory: inputURL) { (fileURL: URL) in
-            
-            let jsFileURL = jsFileURL(forInputURL: inputURL, 
-                                      outputURL: outputURL,
-                                      htmlFileURL: fileURL)
-            if !fileManager.fileExists(atPath: jsFileURL.path)
-            {
-                print("Skipping a file! Could not find .js file at `\(jsFileURL.path)` to place html into for \(fileURL)")
-            }
-            else
-            {
-                // perform the placement
-                placeHTML(from: fileURL.path, to: jsFileURL.path)
-                
-            }
-        }
-    }
-    
-    
-    func run() throws
-    {
-        guard let inputURL = URL(string: inputDirectory)
-        else { fatalError("Input path invalid fileURL.") }
-        
-        guard let outputURL = URL(string: outputDirectory)
-        else { fatalError("Output path invalid fileURL.") }
-                
-        if recursive
-        {
-            placeRecursively(inputURL: inputURL, outputURL: outputURL)
-        }
-        else
-        {
-            placeNonRecursively()
-        }
-        
-        
-        if watch
-        {
-            place_html.fileChangesObserver.delegate = self
-            
-            var pathsToObserve = [String]()
-            if recursive
-            {
-                walkDirectoryTree(rootDirectory: inputURL)
-                {
-                    pathsToObserve.append($0.path())
-                }
-            }
-            else
-            {
-                for anHTMLFileName in try fileManager.contentsOfDirectory(atPath: inputDirectory)
-                {
-                    let htmlFilePath = (inputDirectory as NSString).appendingPathComponent(anHTMLFileName) as String
-                    
-                    var isDirectory: ObjCBool = false
-                    if fileManager.fileExists(atPath: htmlFilePath, isDirectory: &isDirectory) &&
-                        isDirectory.boolValue
-                    {
-                        continue
-                    }
-                    pathsToObserve.append(htmlFilePath)
-                }
-            }
-                
-            if place_html.fileChangesObserver.start(observingPaths: pathsToObserve)
-            {
-                // never exit
-                RunLoop.main.run()
-            }
-            else
-            {
-                print("Unable to start watching. Aborting.")
-                abort()
-            }
-        }
     }
     
     /// The 'meat' of the program: move HTML from one file into a .js file
@@ -245,8 +249,8 @@ template.innerHTML = `
             }
             else
             {
-                // simply prepend html-related code to the file
-                updatedjsFileString = 
+                // simply append html-related code to the file
+                updatedjsFileString =
 """
 \(jsFileString)
 

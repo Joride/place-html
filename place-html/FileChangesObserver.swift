@@ -67,7 +67,9 @@ class FileChangesObserver
                 let anEventFlags = Int(eventFlags[index])
                 if kFSEventStreamEventFlagItemCreated ==
                     anEventFlags & kFSEventStreamEventFlagItemCreated
-                { changes.insert(.created) }
+                {
+                    changes.insert(.created)
+                }
                 
                 if kFSEventStreamEventFlagItemRemoved ==
                     anEventFlags & kFSEventStreamEventFlagItemRemoved
