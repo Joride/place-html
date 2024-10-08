@@ -221,8 +221,24 @@ class PlaceHTML: ParsableCommand
     {
         do
         {
-            let HTMLString = try String(contentsOfFile: htmlPath)
             let jsFileString = try String(contentsOfFile: jsPath)
+            let HTMLString = try String(contentsOfFile: htmlPath).trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            /// find the class name
+            let className: String
+            if let classDefinitionOpeningRange = jsFileString.range(of: "class "),
+                  let classNameClosingRange = jsFileString.range(of: " extends ")
+            {
+                let subString = jsFileString[classDefinitionOpeningRange.upperBound ..< classNameClosingRange.lowerBound]
+                className = String(subString).trimmingCharacters(in: .whitespacesAndNewlines)
+                
+            }
+            else
+            {
+                print("Unable to find the class name. Putting `<className?>` as placeholder.")
+                className = "<className?>"
+            }
+            
             let placableHTML = 
 """
 \(openingComment)
@@ -230,8 +246,8 @@ class PlaceHTML: ParsableCommand
 '\((CommandLine.arguments[0] as NSString).lastPathComponent)' placed the below part by copying the html from `\((htmlPath as NSString).lastPathComponent)`.
 \(dateFormatter.string(from: .now))
 */
-const template = document.createElement('template');
-template.innerHTML = `
+\(className).template = document.createElement('template');
+\(className).template.innerHTML = `
 \(HTMLString)
 `;
 \(closingComment)
