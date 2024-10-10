@@ -216,6 +216,32 @@ class PlaceHTML: ParsableCommand
         return jsFileURL
     }
     
+    private func firstClassNameOfExtendingElement(in javaScriptString: String) -> String
+    {
+        let lines = javaScriptString.components(separatedBy: .newlines)
+        
+        var className: String? = nil
+        for aLine in lines
+        {
+            if let classNameClosingRange = aLine.range(of: " extends "),
+                let classDefinitionOpeningRange = aLine.range(of: "class ")
+            {
+                let subString = aLine[classDefinitionOpeningRange.upperBound ..< classNameClosingRange.lowerBound]
+                className = String(subString).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let className
+                else { continue }
+                return className
+            }
+        }
+        if let className { return className }
+        else
+        {
+            let placeHolder = "<className?>"
+            print("Unable to find the class name. Putting `\(placeHolder)` as placeholder.")
+            return placeHolder
+        }
+    }
+    
     /// The 'meat' of the program: move HTML from one file into a .js file
     private func placeHTML(from htmlPath: String, to jsPath: String)
     {
@@ -225,19 +251,7 @@ class PlaceHTML: ParsableCommand
             let HTMLString = try String(contentsOfFile: htmlPath).trimmingCharacters(in: .whitespacesAndNewlines)
             
             /// find the class name
-            let className: String
-            if let classDefinitionOpeningRange = jsFileString.range(of: "class "),
-                  let classNameClosingRange = jsFileString.range(of: " extends ")
-            {
-                let subString = jsFileString[classDefinitionOpeningRange.upperBound ..< classNameClosingRange.lowerBound]
-                className = String(subString).trimmingCharacters(in: .whitespacesAndNewlines)
-                
-            }
-            else
-            {
-                print("Unable to find the class name. Putting `<className?>` as placeholder.")
-                className = "<className?>"
-            }
+            let className = firstClassNameOfExtendingElement(in: jsFileString)
             
             let placableHTML = 
 """
