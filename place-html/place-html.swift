@@ -260,8 +260,7 @@ class PlaceHTML: ParsableCommand
 '\((CommandLine.arguments[0] as NSString).lastPathComponent)' placed the below part by copying the html from `\((htmlPath as NSString).lastPathComponent)`.
 \(dateFormatter.string(from: .now))
 */
-\(className).template = document.createElement('template');
-\(className).template.innerHTML = `
+\(className).templateHTML = `
 \(HTMLString)
 `;
 \(closingComment)
