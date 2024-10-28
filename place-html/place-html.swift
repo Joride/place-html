@@ -194,7 +194,9 @@ class PlaceHTML: ParsableCommand
         }
     }
     
-    private func jsFileURL(forInputURL inputURL: URL, outputURL: URL, htmlFileURL: URL) -> URL
+    private func jsFileURL(forInputURL inputURL: URL, 
+                           outputURL: URL,
+                           htmlFileURL: URL) -> URL
     {
         let inputPathComponents = inputURL.pathComponents
         let filePathComponents = htmlFileURL.pathComponents
@@ -242,6 +244,34 @@ class PlaceHTML: ParsableCommand
         }
     }
     
+    /// returns the index of the line at which the inserted HTML should be placed
+    /// i.e. if the opening brace of the class is on line 14, this function will return 15.
+    /// This means that whatever is on line 15 needs to move to line 16 (and all lines below shift a line too).
+    private func rangeOfOpeningBraceInFirstExtendingClass(in javaScriptString: String) -> Int
+    {
+        let lines = javaScriptString.components(separatedBy: .newlines)
+        
+        let rangeOfOpeningBraceInLine: (String) -> Range<String.Index>? = { $0.range(of: "{") }
+        var lookingForBrace = false
+        for (lineIndex, aLine) in lines.enumerated()
+        {
+            if let _ = aLine.range(of: " extends "),
+                let _ = aLine.range(of: "class ")
+            {
+                lookingForBrace = true
+            }
+            
+            if lookingForBrace
+            {
+                if let _ = rangeOfOpeningBraceInLine(aLine)
+                {
+                    return (lineIndex + 1)
+                }
+            }
+        }
+        return 0
+    }
+    
     /// The 'meat' of the program: move HTML from one file into a .js file
     private func placeHTML(from htmlPath: String, to jsPath: String)
     {
@@ -250,41 +280,41 @@ class PlaceHTML: ParsableCommand
             let jsFileString = try String(contentsOfFile: jsPath)
             let HTMLString = try String(contentsOfFile: htmlPath).trimmingCharacters(in: .whitespacesAndNewlines)
             
-            /// find the class name
-            let className = firstClassNameOfExtendingElement(in: jsFileString)
-            
-            let placableHTML = 
+            let placableHTML =
 """
 \(openingComment)
 /*
 '\((CommandLine.arguments[0] as NSString).lastPathComponent)' placed the below part by copying the html from `\((htmlPath as NSString).lastPathComponent)`.
 \(dateFormatter.string(from: .now))
 */
-\(className).templateHTML = `
+static innerHTML = `
 \(HTMLString)
 `;
 \(closingComment)
 """
             
+            /// either replace existing placed code, or insert at opening of class
             let updatedjsFileString: String
             if let rangeOfOpeningComment = jsFileString.range(of: openingComment),
                let rangeOfClosingComment = jsFileString.range(of: closingComment)
             {
                 let rangeToReplace = rangeOfOpeningComment.lowerBound ..< rangeOfClosingComment.upperBound
                 
-                // delete the previously entered HTML
+                // replace the previously entered HTML
                 updatedjsFileString = jsFileString.replacingCharacters(in: rangeToReplace,
                                                                        with: placableHTML)
             }
-            else
+            else // insert at opening of class
             {
-                // simply append html-related code to the file
-                updatedjsFileString =
-"""
-\(jsFileString)
-
-\(placableHTML)
-"""
+                /// find the line at which to insert
+                /// try to get the opening brace for the class, otherwise just place at the end of the file
+            
+                let lineIndexOfOpeningBrace = rangeOfOpeningBraceInFirstExtendingClass(in: jsFileString)
+                
+                
+                var lines = jsFileString.components(separatedBy: .newlines)
+                lines.insert(placableHTML, at: lineIndexOfOpeningBrace)
+                updatedjsFileString = lines.joined(separator: "\n");
             }
             
             do
