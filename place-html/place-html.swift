@@ -280,16 +280,23 @@ class PlaceHTML: ParsableCommand
             let jsFileString = try String(contentsOfFile: jsPath)
             let HTMLString = try String(contentsOfFile: htmlPath).trimmingCharacters(in: .whitespacesAndNewlines)
             
-            let placableHTML =
+            let staticVarDeclareLine = "static innerHTML = `"
+            let closingHTMLVar = "`;"
+            let innerHTMLVar =
+"""
+\(staticVarDeclareLine)
+\(HTMLString)
+\(closingHTMLVar)
+"""
+   
+            let placableCode =
 """
 \(openingComment)
 /*
 '\((CommandLine.arguments[0] as NSString).lastPathComponent)' placed the below part by copying the html from `\((htmlPath as NSString).lastPathComponent)`.
 \(dateFormatter.string(from: .now))
 */
-static innerHTML = `
-\(HTMLString)
-`;
+\(innerHTMLVar)
 \(closingComment)
 """
             
@@ -299,10 +306,17 @@ static innerHTML = `
                let rangeOfClosingComment = jsFileString.range(of: closingComment)
             {
                 let rangeToReplace = rangeOfOpeningComment.lowerBound ..< rangeOfClosingComment.upperBound
+                let insertedCodeInJs = jsFileString[rangeToReplace.lowerBound ..< rangeToReplace.upperBound]
                 
-                // replace the previously entered HTML
+                // replace the previously entered HTML, but only if the new HTML
+                // is actually different (as this program updates the date in the comments
+                // which would cause each js file to have a source control
+                // status, which is undesirable.
+                if let _ = insertedCodeInJs.range(of: innerHTMLVar)
+                { return }
+                
                 updatedjsFileString = jsFileString.replacingCharacters(in: rangeToReplace,
-                                                                       with: placableHTML)
+                                                                       with: placableCode)
             }
             else // insert at opening of class
             {
@@ -313,7 +327,7 @@ static innerHTML = `
                 
                 
                 var lines = jsFileString.components(separatedBy: .newlines)
-                lines.insert(placableHTML, at: lineIndexOfOpeningBrace)
+                lines.insert(placableCode, at: lineIndexOfOpeningBrace)
                 updatedjsFileString = lines.joined(separator: "\n");
             }
             
